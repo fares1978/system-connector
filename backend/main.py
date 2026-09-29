@@ -61,17 +61,6 @@ app.add_middleware(
 )
 
 
-# Helper function to convert MongoDB document to response
-# def item_helper(item) -> dict:
-#     return {
-#         "id": str(item["_id"]),
-#         "name": item["name"],
-#         "description": item.get("description"),
-#         "price": item["price"],
-#         "quantity": item["quantity"],
-#     }
-
-
 @app.get("/")
 async def root():
     return {"message": "FastAPI Backend is running"}
@@ -80,56 +69,3 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
-
-
-# @app.post("/items", response_model=models.ItemResponse)
-# async def create_item(item: models.Item):
-#     item_dict = item.model_dump()
-#     result = await items_collection.insert_one(item_dict)
-#     new_item = await items_collection.find_one({"_id": result.inserted_id})
-#     return item_helper(new_item)
-
-
-# @app.get("/items", response_model=list[models.ItemResponse])
-# async def get_items():
-#     items = []
-#     async for item in items_collection.find():
-#         items.append(item_helper(item))
-#     return items
-
-
-# @app.get("/items/{item_id}", response_model=models.ItemResponse)
-# async def get_item(item_id: str):
-#     try:
-#         item = await items_collection.find_one({"_id": ObjectId(item_id)})
-#         if item:
-#             return item_helper(item)
-#         raise HTTPException(status_code=404, detail="Item not found")
-#     except Exception:
-#         raise HTTPException(status_code=400, detail="Invalid item ID")
-
-
-# @app.put("/items/{item_id}", response_model=models.ItemResponse)
-# async def update_item(item_id: str, item: models.Item):
-#     try:
-#         item_dict = item.model_dump()
-#         result = await items_collection.update_one(
-#             {"_id": ObjectId(item_id)}, {"$set": item_dict}
-#         )
-#         if result.modified_count == 1:
-#             updated_item = await items_collection.find_one({"_id": ObjectId(item_id)})
-#             return item_helper(updated_item)
-#         raise HTTPException(status_code=404, detail="Item not found")
-#     except Exception:
-#         raise HTTPException(status_code=400, detail="Invalid item ID")
-
-
-# @app.delete("/items/{item_id}")
-# async def delete_item(item_id: str):
-#     try:
-#         result = await items_collection.delete_one({"_id": ObjectId(item_id)})
-#         if result.deleted_count == 1:
-#             return {"message": "Item deleted successfully"}
-#         raise HTTPException(status_code=404, detail="Item not found")
-#     except Exception:
-#         raise HTTPException(status_code=400, detail="Invalid item ID")
