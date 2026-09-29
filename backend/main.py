@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from auth.router import router as auth_router
+from conectmanager.router import router as connectmanager_router
 from database import client
 
 # ── Logging ────────────────────────────────────────────────────────────────────
@@ -47,6 +48,7 @@ app.add_middleware(
 
 # ── Routers ────────────────────────────────────────────────────────────────────
 app.include_router(auth_router)
+app.include_router(connectmanager_router)
 
 
 # ── Base routes ────────────────────────────────────────────────────────────────

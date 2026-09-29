@@ -1,0 +1,384 @@
+diff --git a/backend/conectmanager/README.md b/backend/conectmanager/README.md
+new file mode 100644
+index 0000000..2744b2f
+--- /dev/null
++++ b/backend/conectmanager/README.md
+@@ -0,0 +1,34 @@
++# Connector API
++
++All routes below require `Authorization: Bearer <access_token>` from `/auth/login` (for an active user). Paths use the existing `conectmanager` Python folder but the HTTP prefix is `/connectmanager`. Open `/docs` for the interactive schema.
++
++| Resource | Create | List |
++| --- | --- | --- |
++| Provider | `POST /connectmanager/providers` | `GET /connectmanager/providers` |
++| Target | `POST /connectmanager/targets` | `GET /connectmanager/targets` |
++| Client | `POST /connectmanager/clients` | `GET /connectmanager/clients` |
++
++Example create bodies, in order:
++
++```json
++{"name":"Source A","body_data":"{}","base_link":"https://example.com","prompt_data":"prompt"}
++```
++
++```json
++{"name":"Destination B","key":"secret","api_link":"https://example.org","data":"{}","prompt_data":"prompt"}
++```
++
++```json
++{"name":"My connector","provider_id":"<id from provider response>","target_id":"<id from target response>","status":"pending"}
++```
++
++`status` can be `active`, `inactive`, or `pending` (default). Provider and Target names are required. Client references must point to records owned by the current user; missing or other users' IDs yield 404. Clients store IDs, not copies of the Provider/Target. Target `key` is stored but excluded from both create and list responses; treat the MongoDB collection and backups as sensitive. There is no update/delete or secret-retrieval endpoint yet.
++
++All list routes return an array, most recent first; optional `skip` (default 0) and `limit` (default 50, max 100) query parameters control paging. Records are scoped to the authenticated user. No frontend forms were added.
++
++To run the smoke tests from `backend/` after installing its dependencies:
++
++```bash
++pip install -q pytest mongomock-motor
++python -m pytest -q tests/test_connector.py
++```
+diff --git a/backend/conectmanager/respository.py b/backend/conectmanager/__init__.py
+similarity index 100%
+rename from backend/conectmanager/respository.py
+rename to backend/conectmanager/__init__.py
+diff --git a/backend/conectmanager/models.py b/backend/conectmanager/models.py
+index 5146bef..782696e 100644
+--- a/backend/conectmanager/models.py
++++ b/backend/conectmanager/models.py
+@@ -1,4 +1,5 @@
+ from datetime import datetime, timezone
++from enum import Enum
+ 
+ from pydantic import BaseModel, Field
+ 
+@@ -27,25 +28,45 @@ class Provider(BaseModel):
+ 
+ 
+ # ── Client in MongoDB ──────────────────────────────────────────────────────────
++class ClientStatus(str, Enum):
++    active = "active"
++    inactive = "inactive"
++    pending = "pending"
++
++
+ class Client(BaseModel):
+-    id: str | None = None
++    id: str
+     name: str | None = None
+-    provider: Provider
+-    target: Target
+-    status: str  # maybe enum: "active", "inactive", "pending"
+-
+-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
++    provider_id: str
++    target_id: str
++    status: ClientStatus
++    created_at: datetime
++    updated_at: datetime
+ 
+ 
+ # ── Request / Response schemas ─────────────────────────────────────────────────
+ class TargetRequest(BaseModel):
++    name: str = Field(min_length=1)
++    key: str = Field(min_length=1)
++    api_link: str
++    data: str
++    prompt_data: str
++
++
++class TargetPublic(BaseModel):
++    """Never send the target API key to the frontend."""
++
++    id: str
++    name: str
+     api_link: str
+     data: str
+     prompt_data: str
++    created_at: datetime
++    updated_at: datetime
+ 
+ 
+ class ProviderRequest(BaseModel):
++    name: str = Field(min_length=1)
+     body_data: str
+     base_link: str
+     prompt_data: str
+@@ -53,6 +74,6 @@ class ProviderRequest(BaseModel):
+ 
+ class ClientRequest(BaseModel):
+     name: str | None = None
+-    provider: ProviderRequest
+-    target: TargetRequest
+-    status: str  # maybe enum: "active", "inactive", "pending"
++    provider_id: str
++    target_id: str
++    status: ClientStatus = ClientStatus.pending
+diff --git a/backend/conectmanager/repository.py b/backend/conectmanager/repository.py
+new file mode 100644
+index 0000000..c93a417
+--- /dev/null
++++ b/backend/conectmanager/repository.py
+@@ -0,0 +1,30 @@
++"""MongoDB persistence for connector resources (all queries scoped to a user)."""
++
++from bson import ObjectId
++from motor.motor_asyncio import AsyncIOMotorDatabase
++
++
++class ConnectorRepository:
++    def __init__(self, db: AsyncIOMotorDatabase):
++        self.db = db
++
++    @staticmethod
++    def serialize(doc: dict) -> dict:
++        return {"id": str(doc["_id"]), **{k: v for k, v in doc.items() if k not in ("_id", "owner_id")}}
++
++    async def add(self, collection: str, owner_id: str, data: dict) -> dict:
++        doc = {**data, "owner_id": owner_id}
++        result = await self.db[collection].insert_one(doc)
++        doc["_id"] = result.inserted_id
++        return self.serialize(doc)
++
++    async def list(self, collection: str, owner_id: str, skip: int, limit: int) -> list[dict]:
++        cursor = self.db[collection].find({"owner_id": owner_id}).sort("_id", -1).skip(skip).limit(limit)
++        return [self.serialize(doc) async for doc in cursor]
++
++    async def exists(self, collection: str, owner_id: str, item_id: str) -> bool:
++        if not ObjectId.is_valid(item_id):
++            return False
++        return await self.db[collection].find_one(
++            {"_id": ObjectId(item_id), "owner_id": owner_id}, {"_id": 1}
++        ) is not None
+diff --git a/backend/conectmanager/router.py b/backend/conectmanager/router.py
+index e69de29..67a585c 100644
+--- a/backend/conectmanager/router.py
++++ b/backend/conectmanager/router.py
+@@ -0,0 +1,76 @@
++"""Authenticated create/list HTTP endpoints for connector resources."""
++
++from fastapi import APIRouter, Depends, Query, status
++from motor.motor_asyncio import AsyncIOMotorDatabase
++
++from auth.dependencies import get_current_user
++from auth.models import UserPublic
++from conectmanager.models import (
++    Client, ClientRequest, Provider, ProviderRequest, TargetPublic, TargetRequest,
++)
++from conectmanager.repository import ConnectorRepository
++from conectmanager.service import ConnectorService
++from database import get_db
++
++router = APIRouter(prefix="/connectmanager", tags=["connectmanager"])
++
++
++def get_service(db: AsyncIOMotorDatabase = Depends(get_db)) -> ConnectorService:
++    return ConnectorService(ConnectorRepository(db))
++
++
++@router.post("/providers", response_model=Provider, status_code=status.HTTP_201_CREATED)
++async def add_provider(
++    payload: ProviderRequest,
++    user: UserPublic = Depends(get_current_user),
++    service: ConnectorService = Depends(get_service),
++):
++    return await service.add_provider(user.id, payload)
++
++
++@router.get("/providers", response_model=list[Provider])
++async def list_providers(
++    skip: int = Query(0, ge=0),
++    limit: int = Query(50, ge=1, le=100),
++    user: UserPublic = Depends(get_current_user),
++    service: ConnectorService = Depends(get_service),
++):
++    return await service.list_providers(user.id, skip, limit)
++
++
++@router.post("/targets", response_model=TargetPublic, status_code=status.HTTP_201_CREATED)
++async def add_target(
++    payload: TargetRequest,
++    user: UserPublic = Depends(get_current_user),
++    service: ConnectorService = Depends(get_service),
++):
++    return await service.add_target(user.id, payload)
++
++
++@router.get("/targets", response_model=list[TargetPublic])
++async def list_targets(
++    skip: int = Query(0, ge=0),
++    limit: int = Query(50, ge=1, le=100),
++    user: UserPublic = Depends(get_current_user),
++    service: ConnectorService = Depends(get_service),
++):
++    return await service.list_targets(user.id, skip, limit)
++
++
++@router.post("/clients", response_model=Client, status_code=status.HTTP_201_CREATED)
++async def add_client(
++    payload: ClientRequest,
++    user: UserPublic = Depends(get_current_user),
++    service: ConnectorService = Depends(get_service),
++):
++    return await service.add_client(user.id, payload)
++
++
++@router.get("/clients", response_model=list[Client])
++async def list_clients(
++    skip: int = Query(0, ge=0),
++    limit: int = Query(50, ge=1, le=100),
++    user: UserPublic = Depends(get_current_user),
++    service: ConnectorService = Depends(get_service),
++):
++    return await service.list_clients(user.id, skip, limit)
+diff --git a/backend/conectmanager/service.py b/backend/conectmanager/service.py
+index e69de29..8b0697e 100644
+--- a/backend/conectmanager/service.py
++++ b/backend/conectmanager/service.py
+@@ -0,0 +1,46 @@
++"""Connector business rules; the router handles HTTP and the repository handles MongoDB."""
++
++from datetime import datetime, timezone
++
++from fastapi import HTTPException, status
++
++from conectmanager.models import ClientRequest, ProviderRequest, TargetRequest
++from conectmanager.repository import ConnectorRepository
++
++
++class ConnectorService:
++    def __init__(self, repository: ConnectorRepository):
++        self.repository = repository
++
++    async def add_provider(self, owner_id: str, payload: ProviderRequest) -> dict:
++        now = datetime.now(timezone.utc)
++        return await self.repository.add("providers", owner_id, {
++            **payload.model_dump(), "created_at": now, "updated_at": now,
++        })
++
++    async def list_providers(self, owner_id: str, skip: int, limit: int) -> list[dict]:
++        return await self.repository.list("providers", owner_id, skip, limit)
++
++    async def add_target(self, owner_id: str, payload: TargetRequest) -> dict:
++        now = datetime.now(timezone.utc)
++        return await self.repository.add("targets", owner_id, {
++            **payload.model_dump(), "created_at": now, "updated_at": now,
++        })
++
++    async def list_targets(self, owner_id: str, skip: int, limit: int) -> list[dict]:
++        return await self.repository.list("targets", owner_id, skip, limit)
++
++    async def add_client(self, owner_id: str, payload: ClientRequest) -> dict:
++        for collection, item_id in (("providers", payload.provider_id), ("targets", payload.target_id)):
++            if not await self.repository.exists(collection, owner_id, item_id):
++                raise HTTPException(
++                    status_code=status.HTTP_404_NOT_FOUND,
++                    detail=f"{collection[:-1].capitalize()} not found",
++                )
++        now = datetime.now(timezone.utc)
++        return await self.repository.add("clients", owner_id, {
++            **payload.model_dump(mode="json"), "created_at": now, "updated_at": now,
++        })
++
++    async def list_clients(self, owner_id: str, skip: int, limit: int) -> list[dict]:
++        return await self.repository.list("clients", owner_id, skip, limit)
+diff --git a/backend/main.py b/backend/main.py
+index 337d491..bf6e2f5 100644
+--- a/backend/main.py
++++ b/backend/main.py
+@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
+ from loguru import logger
+ 
+ from auth.router import router as auth_router
++from conectmanager.router import router as connectmanager_router
+ from database import client
+ 
+ # ── Logging ────────────────────────────────────────────────────────────────────
+@@ -47,6 +48,7 @@ app.add_middleware(
+ 
+ # ── Routers ────────────────────────────────────────────────────────────────────
+ app.include_router(auth_router)
++app.include_router(connectmanager_router)
+ 
+ 
+ # ── Base routes ────────────────────────────────────────────────────────────────
+diff --git a/backend/tests/test_connector.py b/backend/tests/test_connector.py
+new file mode 100644
+index 0000000..1209550
+--- /dev/null
++++ b/backend/tests/test_connector.py
+@@ -0,0 +1,73 @@
++"""API smoke tests using an in-memory Motor-compatible database."""
++
++from bson import ObjectId
++from fastapi.testclient import TestClient
++from mongomock_motor import AsyncMongoMockClient
++
++from auth.dependencies import get_current_user
++from auth.models import UserPublic
++from database import get_db
++import main
++from main import app
++
++
++def test_connector_create_list_and_isolation(monkeypatch):
++    mock_client = AsyncMongoMockClient()
++    monkeypatch.setattr(main, "client", mock_client)
++    db = mock_client["connector_test"]
++    current = {"id": str(ObjectId())}
++    app.dependency_overrides[get_db] = lambda: db
++    app.dependency_overrides[get_current_user] = lambda: UserPublic(
++        id=current["id"], name="Tester", email="test@example.com", active=True
++    )
++    try:
++        with TestClient(app) as client:
++            prefix = "/connectmanager"
++            provider = client.post(f"{prefix}/providers", json={
++                "name": "Acme", "body_data": "{}", "base_link": "https://example.com",
++                "prompt_data": "prompt",
++            })
++            assert provider.status_code == 201, provider.text
++            provider_id = provider.json()["id"]
++            assert client.get(f"{prefix}/providers").json()[0]["id"] == provider_id
++
++            target = client.post(f"{prefix}/targets", json={
++                "name": "Output", "key": "topsecret", "api_link": "https://example.org",
++                "data": "{}", "prompt_data": "prompt",
++            })
++            assert target.status_code == 201, target.text
++            target_id = target.json()["id"]
++            assert "topsecret" not in target.text
++            assert "topsecret" not in client.get(f"{prefix}/targets").text
++
++            assert client.post(f"{prefix}/clients", json={
++                "provider_id": "invalid", "target_id": target_id,
++            }).status_code == 404
++            created = client.post(f"{prefix}/clients", json={
++                "name": "My connection", "provider_id": provider_id,
++                "target_id": target_id, "status": "active",
++            })
++            assert created.status_code == 201, created.text
++            assert created.json()["status"] == "active"
++            assert client.get(f"{prefix}/clients").json()[0]["id"] == created.json()["id"]
++            assert client.get(f"{prefix}/providers?limit=0").status_code == 422
++            assert client.get(f"{prefix}/clients?skip=-1").status_code == 422
++            assert client.post(f"{prefix}/clients", json={
++                "provider_id": provider_id, "target_id": target_id, "status": "other",
++            }).status_code == 422
++
++            current["id"] = str(ObjectId())
++            for resource in ("providers", "targets", "clients"):
++                assert client.get(f"{prefix}/{resource}").json() == []
++            assert client.post(f"{prefix}/clients", json={
++                "provider_id": provider_id, "target_id": target_id,
++            }).status_code == 404
++    finally:
++        app.dependency_overrides.clear()
++
++
++def test_connector_requires_auth(monkeypatch):
++    monkeypatch.setattr(main, "client", AsyncMongoMockClient())
++    with TestClient(app) as client:
++        for resource in ("providers", "targets", "clients"):
++            assert client.get(f"/connectmanager/{resource}").status_code == 401
