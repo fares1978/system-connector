@@ -7,6 +7,7 @@ const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/dashboard';
+  const notice = (location.state as { notice?: string })?.notice;
 
   const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState('');
@@ -21,7 +22,7 @@ const LoginPage: React.FC = () => {
       await login(form);
       navigate(from, { replace: true });
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Invalid email or password');
+      setError(err?.response?.data?.detail || err?.message || 'Invalid email or password');
     }
   };
 
@@ -36,6 +37,11 @@ const LoginPage: React.FC = () => {
 
         {/* Card */}
         <div className="bg-gray-800 rounded-2xl shadow-xl p-8">
+          {notice && (
+            <div className="mb-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-sm">
+              {notice}
+            </div>
+          )}
           {error && (
             <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
               {error}

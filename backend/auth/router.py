@@ -37,7 +37,7 @@ async def register(
         "name": payload.name,
         "email": payload.email.lower(),
         "hashed_password": hash_password(payload.password),
-        "active": True,
+        "active": False,
         "reset_token": None,
         "reset_token_expiry": None,
         "created_at": now,

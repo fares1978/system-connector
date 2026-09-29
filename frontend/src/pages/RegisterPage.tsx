@@ -22,8 +22,15 @@ const RegisterPage: React.FC = () => {
     }
 
     try {
-      await register({ name: form.name, email: form.email, password: form.password });
-      navigate('/dashboard', { replace: true });
+      const isActive = await register({ name: form.name, email: form.email, password: form.password });
+      if (isActive) {
+        navigate('/dashboard', { replace: true });
+      } else {
+        navigate('/login', {
+          replace: true,
+          state: { notice: 'Your account was created and is awaiting activation.' },
+        });
+      }
     } catch (err: any) {
       setError(err?.response?.data?.detail || 'Registration failed');
     }
