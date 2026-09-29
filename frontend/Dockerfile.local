@@ -1,0 +1,17 @@
+FROM node:22.23.3-alpine
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies (use ci if you commit package-lock.json)
+RUN npm install
+
+# Copy application code (overridden by volume mount at runtime)
+COPY . .
+
+EXPOSE 3000
+
+# Start CRA dev server
+CMD ["npm", "start"]
