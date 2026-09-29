@@ -2,8 +2,7 @@ import os
 import sys
 from contextlib import asynccontextmanager
 
-from bson import ObjectId
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -63,14 +62,14 @@ app.add_middleware(
 
 
 # Helper function to convert MongoDB document to response
-def item_helper(item) -> dict:
-    return {
-        "id": str(item["_id"]),
-        "name": item["name"],
-        "description": item.get("description"),
-        "price": item["price"],
-        "quantity": item["quantity"],
-    }
+# def item_helper(item) -> dict:
+#     return {
+#         "id": str(item["_id"]),
+#         "name": item["name"],
+#         "description": item.get("description"),
+#         "price": item["price"],
+#         "quantity": item["quantity"],
+#     }
 
 
 @app.get("/")
