@@ -36,9 +36,6 @@ down:
 stop:
 	$(COMPOSE) stop
 
-stop:
-	$(COMPOSE) start
-
 start:
 	$(COMPOSE) stop $(SERVICE)
 
