@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useCallback, useEffect } from 'rea
 import type { ReactNode } from 'react';
 import type { User, LoginRequest, RegisterRequest } from '../types/auth';
 import { authApi } from '../api/auth';
+import { queryClient } from '../api/queryClient';
 
 interface AuthContextValue {
   user: User | null;
@@ -62,6 +63,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const persist = (token: string, u: User) => {
+    queryClient.clear(); // Never reuse another session's connector data.
     localStorage.setItem('access_token', token);
     localStorage.setItem('user', JSON.stringify(u));
     setUser(u);
@@ -107,6 +109,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } catch {
       // ignore network errors on logout
     } finally {
+      queryClient.clear();
       localStorage.removeItem('access_token');
       localStorage.removeItem('user');
       setUser(null);

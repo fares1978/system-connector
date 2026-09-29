@@ -10,7 +10,7 @@
     "skipLibCheck": true,
 
     /* Bundler mode */
-    "moduleResolution": "classic",
+    "moduleResolution": "node", //
     // "allowImportingTsExtensions": true,
     // "verbatimModuleSyntax": true,
     "moduleDetection": "force",

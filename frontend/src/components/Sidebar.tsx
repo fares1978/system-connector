@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   LayoutDashboard,
@@ -7,6 +7,10 @@ import {
   LogOut,
   Menu,
   ChevronRight,
+  ChevronDown,
+  Building2,
+  Target,
+  Users,
 } from 'lucide-react';
 
 interface NavItem {
@@ -23,7 +27,18 @@ const navItems: NavItem[] = [
 const Sidebar: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
+  const groups = [
+    { label: 'Providers', key: 'providers', icon: <Building2 size={20} /> },
+    { label: 'Targets', key: 'targets', icon: <Target size={20} /> },
+    { label: 'Clients', key: 'clients', icon: <Users size={20} /> },
+  ];
+  useEffect(() => {
+    const match = location.pathname.match(/^\/connectmanager\/(providers|targets|clients)\//);
+    if (match) setOpenGroup(match[1]);
+  }, [location.pathname]);
 
   const handleLogout = async () => {
     await logout();
@@ -74,6 +89,29 @@ const Sidebar: React.FC = () => {
             {!collapsed && <span>{item.label}</span>}
           </NavLink>
         ))}
+        {groups.map((group) => {
+          const expanded = openGroup === group.key;
+          return (
+            <div key={group.key}>
+              <button type="button" aria-expanded={expanded} aria-label={group.label}
+                onClick={() => { if (collapsed) setCollapsed(false); setOpenGroup(expanded ? null : group.key); }}
+                className="flex w-full items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-300 hover:bg-gray-700 hover:text-white">
+                {group.icon}
+                {!collapsed && <><span className="flex-1 text-left">{group.label}</span><ChevronDown size={16} className={expanded ? 'rotate-180' : ''} /></>}
+              </button>
+              {expanded && !collapsed && (
+                <div className="ml-8 space-y-1">
+                  {(['add', 'all'] as const).map((view) => (
+                    <NavLink key={view} to={`/connectmanager/${group.key}/${view}`}
+                      className={({ isActive }) => `block rounded-lg px-3 py-2 text-sm ${isActive ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-700'}`}>
+                      {view === 'add' ? 'Add' : 'All'}
+                    </NavLink>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </nav>
 
       {/* User + Logout */}
