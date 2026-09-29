@@ -1,21 +1,32 @@
-import "./App.css";
 
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import ProtectedRoute from './components/ProtectedRoute';
 
-// const API_URL = process.env.REACT_APP_API_URL || "http://localhost:8000";
+import LoginPage    from './pages/LoginPage';
+import RegisterPage from './pages/RegisterPage';
+import DashboardPage from './pages/DashboardPage';
+import SettingsPage  from './pages/SettingsPage';
 
-const App: React.FC = () => {
+const App: React.FC = () => (
+  <BrowserRouter>
+    <AuthProvider>
+      <Routes>
+        {/* Public routes */}
+        <Route path="/login"    element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
 
-  return (
-    <div className="App">
-      <header className="App-header">
-        <h1>CRM Clients Connection Management System</h1>
-      </header>
+        {/* Protected routes */}
+        <Route element={<ProtectedRoute />}>
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/settings"  element={<SettingsPage />} />
+        </Route>
 
-      <div className="container">
-
-      </div>
-    </div>
-  );
-};
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      </Routes>
+    </AuthProvider>
+  </BrowserRouter>
+);
 
 export default App;
